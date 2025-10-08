@@ -195,16 +195,51 @@ Here is an example of a well-structured plan:
     async def _wait_for_user_approval(
         self, m_plan_id: Optional[str] = None
     ) -> Optional[messages.PlanApprovalResponse]:
-        """Wait for user approval response."""
-
-        # To do: implement timeout and error handling
-        if m_plan_id not in orchestration_config.approvals:
-            orchestration_config.approvals[m_plan_id] = None
-        while orchestration_config.approvals[m_plan_id] is None:
-            await asyncio.sleep(0.2)
-        return messages.PlanApprovalResponse(
-            approved=orchestration_config.approvals[m_plan_id], m_plan_id=m_plan_id
-        )
+        """
+        Wait for user approval response using event-driven pattern with timeout handling.
+        
+        Args:
+            m_plan_id: The plan ID to wait for approval
+            
+        Returns:
+            PlanApprovalResponse: Approval result with approved status and plan ID
+            
+        Raises:
+            asyncio.TimeoutError: If timeout is exceeded (300 seconds default)
+        """
+        logger.info(f"Waiting for user approval for plan: {m_plan_id}")
+        
+        if not m_plan_id:
+            logger.error("No plan ID provided for approval")
+            return messages.PlanApprovalResponse(approved=False, m_plan_id=m_plan_id)
+        
+        # Initialize approval as pending using the new event-driven method
+        orchestration_config.set_approval_pending(m_plan_id)
+        
+        try:
+            # Wait for approval with timeout using the new event-driven method
+            approved = await orchestration_config.wait_for_approval(m_plan_id)
+            
+            logger.info(f"Approval received for plan {m_plan_id}: {approved}")
+            return messages.PlanApprovalResponse(
+                approved=approved, m_plan_id=m_plan_id
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Approval timeout for plan {m_plan_id} after {orchestration_config.default_timeout} seconds")
+            # Return default rejection on timeout
+            return messages.PlanApprovalResponse(
+                approved=False, m_plan_id=m_plan_id
+            )
+        except KeyError as e:
+            logger.error(f"Plan ID not found: {e}")
+            return messages.PlanApprovalResponse(
+                approved=False, m_plan_id=m_plan_id
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error waiting for approval: {e}")
+            return messages.PlanApprovalResponse(
+                approved=False, m_plan_id=m_plan_id
+            )
 
     async def prepare_final_answer(
         self, magentic_context: MagenticContext

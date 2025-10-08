@@ -259,16 +259,51 @@ class ProxyAgent(Agent):
     async def _wait_for_user_clarification(
         self, request_id: str
     ) -> Optional[UserClarificationResponse]:
-        """Wait for user clarification response."""
-        # To do: implement timeout and error handling
-        if request_id not in orchestration_config.clarifications:
-            orchestration_config.clarifications[request_id] = None
-        while orchestration_config.clarifications[request_id] is None:
-            await asyncio.sleep(0.2)
-        return UserClarificationResponse(
-            request_id=request_id,
-            answer=orchestration_config.clarifications[request_id],
-        )
+        """
+        Wait for user clarification response using event-driven pattern with timeout handling.
+        
+        Args:
+            request_id: The request ID to wait for clarification
+            
+        Returns:
+            UserClarificationResponse: Clarification result with request ID and answer
+            
+        Raises:
+            asyncio.TimeoutError: If timeout is exceeded (300 seconds default)
+        """
+       # logger.info(f"Waiting for user clarification for request: {request_id}")
+        
+        # Initialize clarification as pending using the new event-driven method
+        orchestration_config.set_clarification_pending(request_id)
+        
+        try:
+            # Wait for clarification with timeout using the new event-driven method
+            answer = await orchestration_config.wait_for_clarification(request_id)
+            
+            #logger.info(f"Clarification received for request {request_id}: {answer}")
+            return UserClarificationResponse(
+                request_id=request_id,
+                answer=answer,
+            )
+        except asyncio.TimeoutError:
+            #logger.warning(f"Clarification timeout for request {request_id} after {orchestration_config.default_timeout} seconds")
+            # Return default "no response" answer on timeout
+            return UserClarificationResponse(
+                request_id=request_id,
+                answer="No response received within timeout period.",
+            )
+        except KeyError as e:
+            #logger.error(f"Request ID not found: {e}")
+            return UserClarificationResponse(
+                request_id=request_id,
+                answer="Error: Request not found.",
+            )
+        except Exception as e:
+            #logger.error(f"Unexpected error waiting for clarification: {e}")
+            return UserClarificationResponse(
+                request_id=request_id,
+                answer="Error: Unable to receive clarification.",
+            )
 
     async def get_response(self, chat_history, **kwargs):
         """Get response from the agent - required by Agent base class."""
